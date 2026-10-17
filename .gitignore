@@ -1,0 +1,9 @@
+.build/
+build/
+vendor/whisper.cpp/
+vendor/whisper-build/
+vendor/lib/
+Sources/CWhisper/include/*.h
+.DS_Store
+*.bin
+.signing/
