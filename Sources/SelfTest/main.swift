@@ -147,6 +147,21 @@ expect(clean(" Hello  world ,  again ."), "Hello world, again.", "spacing tidied
 expect(clean(" I think the pipeline needs better embeddings, new paragraph, thanks, Anna."),
        "I think the pipeline needs better embeddings.\n\nThanks, Anna.", "dangling comma before break becomes a full stop")
 
+// Whisper repetition loops
+let looped = String(repeating: " Okay, then also help with the Google Ad stuff.", count: 9)
+expect(clean(looped), "Okay, then also help with the Google Ad stuff.", "looped sentence pasted once")
+expect(clean(" Let's do the budget first." + looped + " Then the report."),
+       "Let's do the budget first. Okay, then also help with the Google Ad stuff. Then the report.", "loop in the middle collapsed")
+expect(clean(" I'll send the deck tomorrow. I'll send the deck tomorrow."), "I'll send the deck tomorrow.", "long sentence twice is a loop")
+expect(clean(looped + " Okay, then also help with"), "Okay, then also help with the Google Ad stuff.", "cut-off copy at the end dropped")
+expect(clean(" We need the Google Ad stuff, the Google Ad stuff, the Google Ad stuff, the Google Ad stuff."),
+       "We need the Google Ad stuff.", "phrase loop without full stops")
+expect(clean(" Thank you. Thank you. Thank you. Thank you.", speech: 0.2), "", "looped hallucination still dropped")
+expect(clean(" No. No. That's not it."), "No. No. That's not it.", "short deliberate repeat kept")
+expect(clean(" It was very, very, very good."), "It was very, very, very good.", "emphasis kept")
+expect(clean(" Bye bye."), "Bye bye.", "doubled word kept")
+expect(clean(" We should go. Then we should go home."), "We should go. Then we should go home.", "similar sentences kept")
+
 let vocabularyProcessor = TextProcessor(options: .init(vocabulary: PromptBuilder.terms(from: Prefs_defaultVocabulary), appendSpace: false))
 func casing(_ s: String) -> String { vocabularyProcessor.process(s) }
 expect(casing(" Ask chatGPT about the rag setup on Macos."), "Ask ChatGPT about the RAG setup on macOS.", "distinctive vocabulary casing enforced")

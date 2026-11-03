@@ -64,6 +64,7 @@ public struct TextProcessor {
 
         text = Self.removeNonSpeechAnnotations(text)
         text = Self.collapseSpaces(text).trimmingCharacters(in: .whitespacesAndNewlines)
+        text = Self.collapseRepeats(text)
 
         if Self.isHallucination(text, speechSeconds: speechSeconds, prompt: prompt) {
             return ""
@@ -102,6 +103,69 @@ public struct TextProcessor {
 
     static func removeNonSpeechAnnotations(_ text: String) -> String {
         annotationPatterns.reduce(text) { $1.replace(in: $0, with: " ") }
+    }
+
+    /// Whisper sometimes gets stuck in a loop and emits the same sentence or phrase over and
+    /// over ("Okay, then also help with the Google Ad stuff." ×9), often ending in a cut-off
+    /// copy. This keeps one copy of:
+    /// - a sentence of 4+ words repeated back to back, even just twice;
+    /// - any phrase of 2+ words repeated 3+ times in a row;
+    /// - a single word repeated 5+ times in a row.
+    /// Deliberate repetition ("No. No.", "very, very, very") is left alone.
+    static func collapseRepeats(_ text: String) -> String {
+        let tokens = text.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        guard tokens.count >= 4 else { return text }
+        let keys = tokens.map(repeatKey)
+
+        var output: [String] = []
+        var changed = false
+        var i = 0
+        while i < tokens.count {
+            let longestUnit = min(60, (tokens.count - i) / 2)
+            var next = i
+            if longestUnit >= 1 {
+                for k in 1...longestUnit {
+                    let unit = keys[i..<(i + k)]
+                    var copies = 1
+                    while i + (copies + 1) * k <= tokens.count, keys[(i + copies * k)..<(i + (copies + 1) * k)] == unit {
+                        copies += 1
+                    }
+                    let isSentence = (i == 0 || endsSentence(tokens[i - 1])) && endsSentence(tokens[i + k - 1])
+                    let required = k == 1 ? 5 : (k >= 4 && isSentence ? 2 : 3)
+                    guard copies >= required else { continue }
+
+                    // Keep the first copy, but end it like the last one ("stuff, stuff, stuff." → "stuff.").
+                    output += tokens[i..<(i + k - 1)]
+                    output.append(tokens[i + copies * k - 1])
+                    next = i + copies * k
+                    // A cut-off copy at the very end ("… Okay, then also help") goes too.
+                    let rest = tokens.count - next
+                    if rest > 0, rest < k, keys[next...] == keys[i..<(i + rest)] {
+                        next = tokens.count
+                    }
+                    break
+                }
+            }
+            if next > i {
+                changed = true
+                i = next
+            } else {
+                output.append(tokens[i])
+                i += 1
+            }
+        }
+        return changed ? output.joined(separator: " ") : text
+    }
+
+    /// A word compared case- and punctuation-insensitively ("Stuff." == "stuff,").
+    private static func repeatKey(_ token: String) -> String {
+        let key = String(token.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+        return key.isEmpty ? token : key
+    }
+
+    private static func endsSentence(_ token: String) -> Bool {
+        let trimmed = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'”’)]»"))
+        return trimmed.last.map { ".!?…".contains($0) } == true
     }
 
     /// Phrases Whisper is known to produce on silence or noise (it was trained on subtitles).
